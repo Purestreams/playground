@@ -37,7 +37,18 @@ scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
 directionalLight.position.set(10, 10, 5);
 directionalLight.castShadow = true;
+// --- Shadow Quality Improvements ---
+directionalLight.shadow.mapSize.width = 2048; // default is 512
+directionalLight.shadow.mapSize.height = 2048; // default is 512
+directionalLight.shadow.camera.top = 100;
+directionalLight.shadow.camera.bottom = -100;
+directionalLight.shadow.camera.left = -100;
+directionalLight.shadow.camera.right = 100;
+directionalLight.shadow.camera.near = 0.5;
+directionalLight.shadow.camera.far = 500;
+// --- End Shadow Quality Improvements ---
 scene.add(directionalLight);
+scene.add(directionalLight.target); // Add the light's target to the scene
 
 // Ground
 const groundGeometry = new THREE.PlaneGeometry(200, 200, 100, 100); // Add segments for displacement
@@ -219,11 +230,11 @@ function animate() {
     if (keys.d) {
         player.rotation.y -= turnSpeed;
     }
-    if (keys.w) {
+    if (keys.s) {
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion);
         player.position.add(forward.multiplyScalar(moveSpeed));
     }
-    if (keys.s) {
+    if (keys.w) {
         const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
         player.position.add(backward.multiplyScalar(moveSpeed));
     }
@@ -239,6 +250,15 @@ function animate() {
         legL.rotation.x = THREE.MathUtils.lerp(legL.rotation.x, 0, deltaTime * 5);
         legR.rotation.x = THREE.MathUtils.lerp(legR.rotation.x, 0, deltaTime * 5);
     }
+
+    // --- MAKE LIGHT FOLLOW PLAYER ---
+    directionalLight.position.set(
+        player.position.x + 10,
+        player.position.y + 20, // Position light higher for better angle
+        player.position.z + 10
+    );
+    directionalLight.target.position.copy(player.position);
+    // --- End Light Follow ---
 
     // --- UPDATE SPAWNED PEOPLE ---
     for (const person of spawnedPeople) {
@@ -309,10 +329,10 @@ function animate() {
 
 
     // --- 3rd Person Camera Logic ---
-    const idealOffset = new THREE.Vector3(0, 3, 5); // x, y, z offset from player
+    const idealOffset = new THREE.Vector3(-4, 3, -5); // x, y, z offset from player
     idealOffset.applyQuaternion(player.quaternion); // Rotate offset to match player's rotation
     
-    const idealLookat = new THREE.Vector3(0, 1.5, 0); // Look at a point slightly above player's origin
+    const idealLookat = new THREE.Vector3(-2, 2, 0); // Look at a point slightly above player's origin
     idealLookat.applyQuaternion(player.quaternion);
     idealLookat.add(player.position);
     
