@@ -1,0 +1,334 @@
+// --- Texture Creation Functions (same as before) ---
+function createCanvasTexture(drawFunction, width = 256, height = 256) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    drawFunction(context, width, height);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+}
+
+const faceTexture = createCanvasTexture((ctx, width, height) => {
+    ctx.fillStyle = '#FDD835'; ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = 'black';
+    ctx.beginPath(); ctx.arc(width * 0.3, height * 0.3, width * 0.08, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(width * 0.7, height * 0.3, width * 0.08, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(width * 0.5, height * 0.6, width * 0.2, 0, Math.PI, false); ctx.lineWidth = 8; ctx.stroke();
+});
+
+const shirtTexture = createCanvasTexture((ctx, w, h) => { ctx.fillStyle = '#B71C1C'; ctx.fillRect(0, 0, w, h); });
+const pantsTexture = createCanvasTexture((ctx, w, h) => { ctx.fillStyle = '#1565C0'; ctx.fillRect(0, 0, w, h); });
+
+// --- Scene Setup ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb); // A nice sky blue color
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+scene.add(ambientLight);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+directionalLight.position.set(10, 10, 5);
+directionalLight.castShadow = true;
+scene.add(directionalLight);
+
+// Ground
+const groundGeometry = new THREE.PlaneGeometry(200, 200, 100, 100); // Add segments for displacement
+const textureLoader = new THREE.TextureLoader();
+const groundTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+groundTexture.repeat.set(100, 100);
+const groundMaterial = new THREE.MeshStandardMaterial({ map: groundTexture });
+const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+
+// --- Add Elevation to Ground ---
+const vertices = ground.geometry.attributes.position.array;
+for (let i = 0; i <= vertices.length; i += 3) {
+    // Modify the z-coordinate (which becomes the y-height after rotation)
+    const x = vertices[i];
+    const y = vertices[i+1];
+    // A simple noise function
+    vertices[i+2] = 5 * (Math.sin(x / 10) * Math.cos(y / 10));
+}
+ground.geometry.attributes.position.needsUpdate = true;
+ground.geometry.computeVertexNormals(); // Important for lighting after displacement
+
+
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// --- Raycaster for terrain height ---
+const raycaster = new THREE.Raycaster();
+function getTerrainHeight(x, z) {
+    raycaster.set(new THREE.Vector3(x, 30, z), new THREE.Vector3(0, -1, 0)); // Ray from above pointing down
+    const intersects = raycaster.intersectObject(ground);
+    if (intersects.length > 0) {
+        return intersects[0].point.y;
+    }
+    return 0; // Default height if no intersection
+}
+
+// --- Tree Generation ---
+function createTree() {
+    const tree = new THREE.Group();
+
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // Brown
+    const leavesMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 }); // Forest Green
+
+    const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.3, 2, 8),
+        trunkMaterial
+    );
+    trunk.position.y = 1;
+    trunk.castShadow = true;
+    tree.add(trunk);
+
+    const leaves = new THREE.Mesh(
+        new THREE.ConeGeometry(1.5, 4, 8),
+        leavesMaterial
+    );
+    leaves.position.y = 3.5;
+    leaves.castShadow = true;
+    tree.add(leaves);
+
+    return tree;
+}
+
+for (let i = 0; i < 100; i++) {
+    const tree = createTree();
+    let x, z;
+    // Ensure trees are not too close to the center
+    do {
+         x = (Math.random() - 0.5) * 190;
+         z = (Math.random() - 0.5) * 190;
+    } while (Math.sqrt(x*x + z*z) < 10)
+   
+    const y = getTerrainHeight(x, z);
+    tree.position.set(x, y, z);
+    const scale = Math.random() * 0.5 + 0.75;
+    tree.scale.set(scale, scale, scale);
+    scene.add(tree);
+}
+
+// --- Humanoid Model (same as before) ---
+const player = new THREE.Group();
+scene.add(player);
+
+const plainHeadMaterial = new THREE.MeshStandardMaterial({ color: 0xFDD835 });
+const frontHeadMaterial = new THREE.MeshStandardMaterial({ map: faceTexture });
+const headMaterials = [
+    plainHeadMaterial, // right
+    plainHeadMaterial, // left
+    plainHeadMaterial, // top
+    plainHeadMaterial, // bottom
+    frontHeadMaterial, // front
+    plainHeadMaterial  // back
+];
+
+const shirtMaterial = new THREE.MeshStandardMaterial({ map: shirtTexture });
+const pantsMaterial = new THREE.MeshStandardMaterial({ map: pantsTexture });
+
+const torso = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 0.5), shirtMaterial);
+torso.position.y = 1.75; torso.castShadow = true; player.add(torso);
+const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), headMaterials);
+head.position.y = 3.0; head.castShadow = true; player.add(head);
+const armL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 0.3), shirtMaterial);
+armL.position.set(-0.8, 2.0, 0); armL.castShadow = true; player.add(armL);
+const armR = armL.clone(); armR.position.x = 0.8; player.add(armR);
+const legL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), pantsMaterial);
+legL.position.set(-0.3, 0.75, 0); legL.castShadow = true; player.add(legL);
+const legR = legL.clone(); legR.position.x = 0.3; player.add(legR);
+
+// --- Person Creation ---
+const spawnedPeople = [];
+function createPerson() {
+    const person = new THREE.Group();
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 0.5), shirtMaterial);
+    torso.position.y = 1.75; torso.castShadow = true; person.add(torso);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), headMaterials);
+    head.position.y = 3.0; head.castShadow = true; person.add(head);
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 0.3), shirtMaterial);
+    armL.position.set(-0.8, 2.0, 0); armL.castShadow = true; person.add(armL);
+    const armR = armL.clone(); armR.position.x = 0.8; person.add(armR);
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), pantsMaterial);
+    legL.position.set(-0.3, 0.75, 0); legL.castShadow = true; person.add(legL);
+    const legR = legL.clone(); legR.position.x = 0.3; person.add(legR);
+
+    person.userData.limbs = { armL, armR, legL, legR };
+
+    return person;
+}
+
+function spawnPerson() {
+    const person = createPerson();
+    person.position.copy(player.position);
+    
+    person.userData.velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.05,
+        0,
+        (Math.random() - 0.5) * 0.05
+    );
+    person.userData.velocityY = 0;
+    person.userData.onGround = true;
+    person.userData.moveTimer = Math.random() * 5 + 2; // Change direction every 2-7 seconds
+
+    spawnedPeople.push(person);
+    scene.add(person);
+}
+
+// --- Controls and Movement ---
+const keys = { w: false, a: false, s: false, d: false, ' ': false };
+window.addEventListener('keydown', (e) => { 
+    if(e.key.toLowerCase() in keys) keys[e.key.toLowerCase()] = true; 
+    if(e.key.toLowerCase() === 'f' && !e.repeat) {
+        spawnPerson();
+    }
+});
+window.addEventListener('keyup', (e) => { if(e.key.toLowerCase() in keys) keys[e.key.toLowerCase()] = false; });
+
+const moveSpeed = 0.1;
+const turnSpeed = 0.05;
+
+// Jump variables
+let playerVelocityY = 0;
+const gravity = 0.5;
+const jumpStrength = 0.2;
+let onGround = true;
+
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const deltaTime = clock.getDelta();
+    const time = clock.getElapsedTime();
+    const isMoving = keys.w || keys.s;
+
+    // Player movement and rotation
+    if (keys.a) {
+        player.rotation.y += turnSpeed;
+    }
+    if (keys.d) {
+        player.rotation.y -= turnSpeed;
+    }
+    if (keys.w) {
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion);
+        player.position.add(forward.multiplyScalar(moveSpeed));
+    }
+    if (keys.s) {
+        const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion);
+        player.position.add(backward.multiplyScalar(moveSpeed));
+    }
+
+    // Limb animation
+    if (isMoving) {
+        const walkCycle = Math.sin(time * 10) * 0.4;
+        armL.rotation.x = walkCycle; armR.rotation.x = -walkCycle;
+        legL.rotation.x = -walkCycle; legR.rotation.x = walkCycle;
+    } else {
+        armL.rotation.x = THREE.MathUtils.lerp(armL.rotation.x, 0, deltaTime * 5);
+        armR.rotation.x = THREE.MathUtils.lerp(armR.rotation.x, 0, deltaTime * 5);
+        legL.rotation.x = THREE.MathUtils.lerp(legL.rotation.x, 0, deltaTime * 5);
+        legR.rotation.x = THREE.MathUtils.lerp(legR.rotation.x, 0, deltaTime * 5);
+    }
+
+    // --- UPDATE SPAWNED PEOPLE ---
+    for (const person of spawnedPeople) {
+        // Random movement
+        person.userData.moveTimer -= deltaTime;
+        if (person.userData.moveTimer <= 0) {
+            person.userData.velocity.set(
+                (Math.random() - 0.5) * 0.05,
+                0,
+                (Math.random() - 0.5) * 0.05
+            );
+            person.userData.moveTimer = Math.random() * 5 + 2;
+            // Make person look in the direction they are moving
+            const direction = person.userData.velocity.clone().normalize();
+            if (direction.lengthSq() > 0) { // Avoid looking at (0,0,0) if velocity is zero
+                person.lookAt(person.position.clone().add(direction));
+            }
+        }
+        person.position.add(person.userData.velocity);
+
+        // Animate spawned person's limbs
+        const personWalkCycle = Math.sin(time * 8) * 0.5; // A slightly different walk
+        const limbs = person.userData.limbs;
+        if (person.userData.velocity.lengthSq() > 0.0001) { // If moving
+            limbs.armL.rotation.x = personWalkCycle;
+            limbs.armR.rotation.x = -personWalkCycle;
+            limbs.legL.rotation.x = -personWalkCycle;
+            limbs.legR.rotation.x = personWalkCycle;
+        } else { // If standing still
+            limbs.armL.rotation.x = THREE.MathUtils.lerp(limbs.armL.rotation.x, 0, deltaTime * 5);
+            limbs.armR.rotation.x = THREE.MathUtils.lerp(limbs.armR.rotation.x, 0, deltaTime * 5);
+            limbs.legL.rotation.x = THREE.MathUtils.lerp(limbs.legL.rotation.x, 0, deltaTime * 5);
+            limbs.legR.rotation.x = THREE.MathUtils.lerp(limbs.legR.rotation.x, 0, deltaTime * 5);
+        }
+
+
+        // Gravity for spawned people
+        const personTerrainHeight = getTerrainHeight(person.position.x, person.position.z);
+        person.userData.velocityY -= gravity * deltaTime;
+        person.position.y += person.userData.velocityY;
+
+        if (person.position.y <= personTerrainHeight) {
+            person.position.y = personTerrainHeight;
+            person.userData.velocityY = 0;
+            person.userData.onGround = true;
+        }
+    }
+
+    // --- JUMP AND GRAVITY LOGIC ---
+    const terrainHeight = getTerrainHeight(player.position.x, player.position.z);
+
+    // Jump
+    if (keys[' '] && onGround) {
+        playerVelocityY = jumpStrength;
+        onGround = false;
+    }
+
+    // Apply gravity
+    playerVelocityY -= gravity * deltaTime;
+    player.position.y += playerVelocityY;
+
+    // Check for landing
+    if (player.position.y <= terrainHeight) {
+        player.position.y = terrainHeight;
+        playerVelocityY = 0;
+        onGround = true;
+    }
+
+
+    // --- 3rd Person Camera Logic ---
+    const idealOffset = new THREE.Vector3(0, 3, 5); // x, y, z offset from player
+    idealOffset.applyQuaternion(player.quaternion); // Rotate offset to match player's rotation
+    
+    const idealLookat = new THREE.Vector3(0, 1.5, 0); // Look at a point slightly above player's origin
+    idealLookat.applyQuaternion(player.quaternion);
+    idealLookat.add(player.position);
+    
+    const cameraPosition = new THREE.Vector3().add(player.position).add(idealOffset);
+
+    // Smoothly move camera to the ideal position
+    camera.position.lerp(cameraPosition, deltaTime * 5);
+    camera.lookAt(idealLookat);
+
+    renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}, false);
+
+animate();
